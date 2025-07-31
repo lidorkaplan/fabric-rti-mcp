@@ -350,7 +350,9 @@ def kusto_embed_and_ingest_shots( # ingest_and_embed_shots
     Filters out duplicate entries based on the hash of AugmentedText.
 
     :param cluster_uri: The URI of the Kusto cluster.
-    :param input_data: List of dictionaries containing the data to process. Must contain 'EmbeddingText' and 'AugmentedText' columns.
+    :param input_data: List of dictionaries containing the data to process. Must contain:
+                       - 'EmbeddingText': Natural language description of a shot/example query
+                       - 'AugmentedText': KQL query shot/example corresponding to the description
                        Any additional columns that exist in the shots table schema should also be included.
     :param shots_table_name: Name of the table to ingest embeddings into. Defaults to "KustoCopilotEmbeddings".
                              The table must have the following required columns:
@@ -465,7 +467,7 @@ def kusto_embed_and_ingest_shots( # ingest_and_embed_shots
         
     
     # Step 3: Prepare data for KQL datatable
-    data_header: List[str] = [f"{col}:{shots_table_schema[col]}" for col in required_input_columns]
+    data_header: List[str] = [f"{col}:{shots_table_schema[col]}" for col in input_data[0].keys()]
     # convert input data to comma-separated string for all input rows and all columns
     data_rows: List[str] = []
     for row in input_data:
