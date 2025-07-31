@@ -337,6 +337,178 @@ def kusto_get_shots(prompt: str,
     return _execute(kql_query, cluster_uri, database=database)
 
 
+def kusto_embed_and_ingest_shots( # ingest_and_embed_shots
+    cluster_uri: str,
+    input_data: List[Dict[str, Any]],
+    shots_table_name: str = "KustoCopilotEmbeddings",
+    database: Optional[str] = None,
+    embedding_endpoint: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Creates embeddings from input data and ingests them into the shots table.
+    Validates that the shots table exists with the correct schema and that input data has required columns.
+    Filters out duplicate entries based on the hash of AugmentedText.
+
+    :param cluster_uri: The URI of the Kusto cluster.
+    :param input_data: List of dictionaries containing the data to process. Must contain 'EmbeddingText' and 'AugmentedText' columns.
+                       Any additional columns that exist in the shots table schema should also be included.
+    :param shots_table_name: Name of the table to ingest embeddings into. Defaults to "KustoCopilotEmbeddings".
+                             The table must have the following required columns:
+                             - Timestamp (datetime): When the record was created
+                             - Key (string): Unique identifier for the record (hash of AugmentedText)
+                             - EmbeddingText (string): Natural language text that was embedded
+                             - AugmentedText (string): The corresponding KQL query or response
+                             - EmbeddingVector (dynamic): The embedding vector for the EmbeddingText
+                             - EmbeddingModel (string): The model used to generate the embedding
+                             - Metadata (dynamic): Additional metadata for the record
+                             - User (string): The user who created the record
+    :param database: Optional database name. If not provided, uses the default database.
+    :param embedding_endpoint: Optional endpoint for the embedding model to use. 
+                              If not provided, uses the AZ_OPENAI_EMBEDDING_ENDPOINT environment variable.
+    :return: List of dictionaries containing the ingestion result.
+    """
+    # Use provided endpoint, or fall back to environment variable, or use default
+    endpoint = embedding_endpoint or DEFAULT_EMBEDDING_ENDPOINT
+    
+    if not endpoint:
+        raise ValueError("Embedding endpoint is required. Set AZ_OPENAI_EMBEDDING_ENDPOINT environment variable or provide embedding_endpoint parameter.")
+    
+    # Validate input data is not empty
+    if not input_data:
+        raise ValueError("Input data cannot be empty.")
+    
+    # Step 1: Validate shots table exists and has correct schema
+    try:
+        schema_result = kusto_get_table_schema(shots_table_name, cluster_uri, database)
+        if not schema_result:
+            raise ValueError(f"Table '{shots_table_name}' does not exist.")
+        
+        # Define required columns with their expected types
+        shots_table_required_columns = {
+            "Timestamp": "datetime",
+            "Key": "string", 
+            "EmbeddingText": "string",
+            "AugmentedText": "string",
+            "EmbeddingVector": "dynamic",
+            "EmbeddingModel": "string",
+            "Metadata": "dynamic",
+            "User": "string"
+        }
+        
+        # Parse schema to get column info
+        shots_table_schema: Dict[str, str] = {}
+        schema_text = schema_result[0]['Schema']
+        
+        # Parse the schema string to extract column definitions
+        for col in schema_text.split(','):
+            parts = col.split(':')
+            if len(parts) >= 2:
+                col_name = parts[0].strip()
+                col_type = parts[1].strip()
+                shots_table_schema[col_name] = col_type
+        
+        # Validate required columns exist with correct types
+        missing_columns: List[str] = []
+        type_mismatches: List[str] = []
+        optional_columns: List[str] = []
+        
+        for col_name, expected_type in shots_table_required_columns.items():
+            if col_name not in shots_table_schema:
+                missing_columns.append(col_name)
+            elif shots_table_schema[col_name] != expected_type:
+                type_mismatches.append(f"Column '{col_name}' has type '{shots_table_schema[col_name]}' but expected '{expected_type}'")
+
+        for col_name in shots_table_schema.keys():
+            if col_name not in shots_table_required_columns:
+                optional_columns.append(col_name)
+        
+        error_message: str = ""
+        if missing_columns:
+            error_message += f"missing required columns: {', '.join(missing_columns)}\n"
+        if type_mismatches:
+            error_message += f"has incorrect column types: {chr(10).join(type_mismatches)}\n"
+
+        if error_message:
+            raise ValueError(f"Table '{shots_table_name}' {error_message.strip()}")
+                
+    except Exception as e:
+        raise ValueError(f"Failed to validate shots table schema: {str(e)}")
+    
+    # Step 2: Validate input data has required columns and compatible types
+    try:
+        required_input_columns = ["EmbeddingText", "AugmentedText"] + optional_columns
+        first_row = input_data[0]
+        
+        # Check for missing required columns in input data
+        missing_input_columns: List[str] = []
+        for col in required_input_columns:
+            if col not in first_row:
+                missing_input_columns.append(col)
+        
+        extra_columns: List[str] = []
+        # Check for extra columns in input data
+        for col in first_row.keys():
+            if col not in required_input_columns and col not in optional_columns:
+                extra_columns.append(col)
+                
+        error_message: str = ""
+        if missing_input_columns:
+            error_message += f"Input data is missing required columns: {', '.join(missing_input_columns)} \n"
+        if extra_columns:
+            error_message += f"Input data contains unexpected columns: {', '.join(extra_columns)} \n"
+            
+        if error_message:
+            raise ValueError(error_message.strip())
+        
+    except Exception as e:
+        raise ValueError(f"Failed to validate input data: {str(e)}")    
+        
+    
+    # Step 3: Prepare data for KQL datatable
+    data_header: List[str] = [f"{col}:{shots_table_schema[col]}" for col in required_input_columns]
+    # convert input data to comma-separated string for all input rows and all columns
+    data_rows: List[str] = []
+    for row in input_data:
+        row_string = '```,```'.join(str(value) for value in row.values())
+        row_string = f'```{row_string}```'  # wrap in quotes to handle commas
+        data_rows.append(row_string)
+    data_table_rows = ",\n    ".join(data_rows)
+    
+    # Extract embedding model from endpoint between deployments/ and ;
+    embedding_model = endpoint.split("deployments/")[-1].split(";")[0]
+    
+    # Step 4: Create KQL query to process embeddings and ingest
+    # Filters out existing embeddings based on the hash of AugmentedText
+    # Will require different handling if we want to support updating embedded text
+    # TODO: get user
+    ingest_query = f"""
+    let model_endpoint = '{endpoint}';
+    let input_data = datatable({','.join(data_header)})
+    [
+        {data_table_rows}
+    ];
+    {shots_table_name}
+    | take 0
+    | union
+    (input_data
+    | extend Timestamp = now()
+    | extend Key = hash_sha256(AugmentedText)
+    | join kind = leftanti {shots_table_name} on Key
+    | evaluate ai_embeddings(EmbeddingText, model_endpoint)
+    | project-rename EmbeddingVector = EmbeddingText_embeddings
+    | extend EmbeddingModel = '{embedding_model}'
+    | extend Metadata = dynamic({{}})
+    | extend User = "test_user"  // TODO: replace with actual user context
+    )
+    """
+    
+    # Execute the ingest command
+    insert_command = f".set-or-append {shots_table_name} <| {ingest_query}"
+    ingestion_result = _execute(insert_command, cluster_uri, database=database)
+    return ingestion_result
+    
+
+
 KUSTO_CONNECTION_CACHE: KustoConnectionCache = KustoConnectionCache()
 DEFAULT_DB = KustoConnectionStringBuilder.DEFAULT_DATABASE_NAME
 DEFAULT_EMBEDDING_ENDPOINT = os.getenv("AZ_OPENAI_EMBEDDING_ENDPOINT")
@@ -344,4 +516,5 @@ DEFAULT_EMBEDDING_ENDPOINT = os.getenv("AZ_OPENAI_EMBEDDING_ENDPOINT")
 DESTRUCTIVE_TOOLS = {
     kusto_command.__name__,
     kusto_ingest_inline_into_table.__name__,
+    kusto_embed_and_ingest_shots.__name__,
 }
