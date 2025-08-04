@@ -61,3 +61,7 @@ def register_tools(mcp: FastMCP) -> None:
         kusto_service.kusto_embed_and_ingest_shots,
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
     )
+    mcp.add_tool(
+        kusto_service.kusto_explain_kql_results,
+        annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+    )

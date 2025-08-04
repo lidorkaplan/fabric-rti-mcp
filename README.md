@@ -82,7 +82,8 @@ The process should end with the below settings in your `settings.json` or your `
                 "env": {
                     "KUSTO_SERVICE_URI": "https://help.kusto.windows.net/", // optionally provide cluster URI
                     "KUSTO_SERVICE_DEFAULT_DB": "Samples", // optionally provide database
-                    "AZ_OPENAI_EMBEDDING_ENDPOINT": "https://your-openai-resource.openai.azure.com/openai/deployments/text-embedding-ada-002/embeddings?api-version=2024-10-21;impersonate" // optionally provide Azure OpenAI embedding endpoint (used for semantic search in the get shots tool)
+                    "AZ_OPENAI_EMBEDDING_ENDPOINT": "https://your-openai-resource.openai.azure.com/openai/deployments/text-embedding-ada-002/embeddings?api-version=2024-10-21;impersonate", // optionally provide Azure OpenAI embedding endpoint (used for semantic search in the get shots tool)
+                    "AZ_OPENAI_COMPLETION_ENDPOINT": "https://your-openai-resource.openai.azure.com/openai/deployments/gpt-4/chat/completions?api-version=2024-10-21;impersonate" // optionally provide Azure OpenAI completion endpoint (used for explaining KQL query results)
                 }
             }
         }
@@ -117,7 +118,8 @@ The process should end with the below settings in your `settings.json` or your `
                 "env": {
                     "KUSTO_SERVICE_URI": "https://help.kusto.windows.net/", // optionally provide cluster URI
                     "KUSTO_SERVICE_DEFAULT_DB": "Samples", // optionally provide database
-                    "AZ_OPENAI_EMBEDDING_ENDPOINT": "https://your-openai-resource.openai.azure.com/openai/deployments/text-embedding-ada-002/embeddings?api-version=2024-10-21;impersonate" // optionally provide Azure OpenAI embedding endpoint (used for semantic search in the get shots tool)
+                    "AZ_OPENAI_EMBEDDING_ENDPOINT": "https://your-openai-resource.openai.azure.com/openai/deployments/text-embedding-ada-002/embeddings?api-version=2024-10-21;impersonate", // optionally provide Azure OpenAI embedding endpoint (used for semantic search in the get shots tool)
+                    "AZ_OPENAI_COMPLETION_ENDPOINT": "https://your-openai-resource.openai.azure.com/openai/deployments/gpt-4/chat/completions?api-version=2024-10-21;impersonate" // optionally provide Azure OpenAI completion endpoint (used for explaining KQL query results)
                 }
             }
         }
@@ -169,6 +171,7 @@ None - the server will work with default settings for demo purposes.
 | `KUSTO_SERVICE_URI` | The URI of your Kusto cluster | `https://mycluster.westus.kusto.windows.net` |
 | `KUSTO_SERVICE_DEFAULT_DB` | Default database name for queries | `MyDatabase` |
 | `AZ_OPENAI_EMBEDDING_ENDPOINT` | Custom Azure OpenAI embedding endpoint for semantic search | `https://your-resource.openai.azure.com/openai/deployments/text-embedding-ada-002/embeddings?api-version=2024-10-21;impersonate` |
+| `AZ_OPENAI_COMPLETION_ENDPOINT` | Custom Azure OpenAI completion endpoint for explaining KQL query results | `https://your-resource.openai.azure.com/openai/deployments/gpt-4/chat/completions?api-version=2024-10-21;impersonate` |
 
 ### Embedding Endpoint Configuration
 
@@ -182,6 +185,26 @@ https://{your-openai-resource}.openai.azure.com/openai/deployments/{deployment-n
 **Components:**
 - `{your-openai-resource}`: Your Azure OpenAI resource name
 - `{deployment-name}`: Your text embedding deployment name (e.g., `text-embedding-ada-002`)
+- `{api-version}`: API version (e.g., `2024-10-21`, `2023-05-15`)
+- `;impersonate`: Authentication method (you might use managed identity)
+
+**Authentication Requirements:**
+- Your Azure identity must have access to the OpenAI resource
+- In case using managed identity, the OpenAI resource must should be configured to accept managed identity authentication
+- The deployment must exist and be accessible
+
+### Completion Endpoint Configuration
+
+The `AZ_OPENAI_COMPLETION_ENDPOINT` is used by the KQL query explanation functionality (e.g., `kusto_explain_kql_results` function) to generate natural language descriptions of query results.
+
+**Format Requirements:**
+```
+https://{your-openai-resource}.openai.azure.com/openai/deployments/{deployment-name}/chat/completions?api-version={api-version};impersonate
+```
+
+**Components:**
+- `{your-openai-resource}`: Your Azure OpenAI resource name
+- `{deployment-name}`: Your chat completion deployment name (e.g., `gpt-4`, `gpt-35-turbo`)
 - `{api-version}`: API version (e.g., `2024-10-21`, `2023-05-15`)
 - `;impersonate`: Authentication method (you might use managed identity)
 
