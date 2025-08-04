@@ -136,6 +136,13 @@ def kusto_query(
     Executes a KQL query on the specified database. If no database is provided,
     it will use the default database.
 
+    ## Fallback Strategy
+    When struggling to generate a query, consider using the `kusto_get_shots` tool to retrieve 
+    existing high quality shots that can provide context or examples for query structure or logic.
+    When struggling to generate a query, consider creating new high quality shots using the
+    workflow: select shots (check UDF availability for shot selection functions) → use explain results tool → embed and ingest.
+    New shots can improve the quality of future queries.
+
     :param query: The KQL query to execute.
     :param cluster_uri: The URI of the Kusto cluster.
     :param database: Optional database name. If not provided, uses the default database.
@@ -308,6 +315,13 @@ def kusto_get_shots(prompt: str,
 ) -> List[Dict[str, Any]]:
     """
     Retrieves shots that are most semantic similar to the supplied prompt from the specified shots table.
+    This tool can also help retrieve similar shots when the copilot fails at generating the right query 
+    for any reason. Calling this tool can bring similar shots and help with kql generation attempts.
+
+    ## Shot Retrieval Guidelines
+    Consider using this tool to retrieve similar high quality shots to provide context or examples 
+    for query structure or logic. Use shots to understand patterns and improve query generation quality.
+    This is particularly useful as a fallback strategy when struggling to generate queries.
 
     :param prompt: The user prompt to find similar shots for.
     :param shots_table_name: Name of the table containing the shots. The table should have "EmbeddingText" (string) column
@@ -348,6 +362,15 @@ def kusto_embed_and_ingest_shots( # ingest_and_embed_shots
     Creates embeddings from input data and ingests them into the shots table.
     Validates that the shots table exists with the correct schema and that input data has required columns.
     Filters out duplicate entries based on the hash of AugmentedText.
+
+    ## Creating and Storing New Shots Workflow
+    **Do not create/generate new shots on your own** - always use shots from user created queries.
+    This tool is part of the workflow for getting new high quality shots:
+    1. **Select shots**: check UDF availability for shot selection functions
+    2. **Use kusto_explain_kql_results tool** to get natural language descriptions
+    3. **Embed and ingest** using this tool
+    
+    New shots can improve the quality of future queries. Follow the workflow outlined above when creating new shots.
 
     :param cluster_uri: The URI of the Kusto cluster.
     :param input_data: List of dictionaries containing the data to process. Must contain:
@@ -500,8 +523,6 @@ def kusto_embed_and_ingest_shots( # ingest_and_embed_shots
     | evaluate ai_embeddings(EmbeddingText, model_endpoint)
     | project-rename EmbeddingVector = EmbeddingText_embeddings
     | extend EmbeddingModel = '{embedding_model}'
-    | extend Metadata = dynamic({{}})
-    | extend User = "test_user"  // TODO: replace with actual user context
     )
     """
     
