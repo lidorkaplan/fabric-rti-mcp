@@ -439,6 +439,7 @@ def kusto_embed_and_ingest_shots( # ingest_and_embed_shots
     # Step 2: Validate input data has required columns and compatible types
     try:
         required_input_columns = ["EmbeddingText", "AugmentedText"] + optional_columns
+        optional_columns += ["Metadata", "User"]
         first_row = input_data[0]
         
         # Check for missing required columns in input data
